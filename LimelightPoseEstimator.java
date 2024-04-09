@@ -17,14 +17,20 @@ public class LimelightPoseEstimator implements PoseEstimator {
 
   boolean only2TagsMeasurements = false;
 
+  OdometryEnabledSwerveSubsystem swerveDrive = null;
+
+  boolean useMegaTag1;
+
   CustomBooleanLogger isDetectingLogger;
 
   CustomPose2dLogger detectedPoseLogger;
 
   CustomDoubleLogger numberOfDetectedTagsLogger;
 
-  public LimelightPoseEstimator(String limelightName) {
+  public LimelightPoseEstimator(String limelightName, boolean only2TagsMeasurements, boolean useMegaTag1) {
     this.limelightName = limelightName;
+    this.only2TagsMeasurements = only2TagsMeasurements;
+    this.useMegaTag1 = useMegaTag1;
     this.isDetectingLogger = new CustomBooleanLogger(
         "/Vision/LimelightPoseEstimator/" + limelightName + "/IsDetectingTags");
     this.detectedPoseLogger = new CustomPose2dLogger(
@@ -34,26 +40,30 @@ public class LimelightPoseEstimator implements PoseEstimator {
   }
 
   public LimelightPoseEstimator(String limelightName, boolean only2TagsMeasurements) {
-    this.limelightName = limelightName;
-    this.isDetectingLogger = new CustomBooleanLogger(
-        "/Vision/LimelightPoseEstimator/" + limelightName + "/IsDetectingTags");
-    this.detectedPoseLogger = new CustomPose2dLogger(
-        "/Vision/LimelightPoseEstimator/" + limelightName + "/DetectedPose");
-    this.numberOfDetectedTagsLogger = new CustomDoubleLogger(
-        "/Vision/LimelightPoseEstimator/" + limelightName + "/NumberOfDetectedTags");
-    this.only2TagsMeasurements = only2TagsMeasurements;
+    this(limelightName, only2TagsMeasurements, false);
+  }
+
+  public LimelightPoseEstimator(String limelightName) {
+    this(limelightName, false);
   }
 
   public Optional<PoseEstimation> getEstimatedPose(Pose2d referencePose) {
-    LimelightHelpers.SetRobotOrientation(this.limelightName, OdometryEnabledSwerveSubsystem.robotOrientation, 0, 0, 0,
-        0, 0);
-    if (!LimelightHelpers.getTV(this.limelightName)
-        || Math.abs(OdometryEnabledSwerveSubsystem.robotAngularVelocity) > 3) {
+    if (!LimelightHelpers.getTV(this.limelightName)) {
       this.isDetectingLogger.append(false);
       this.numberOfDetectedTagsLogger.append(0);
       return Optional.empty();
     }
-    PoseEstimate limelightPoseEstimate = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(this.limelightName);
+    PoseEstimate limelightPoseEstimate;
+    if (useMegaTag1 || swerveDrive == null) {
+      limelightPoseEstimate = LimelightHelpers.getBotPoseEstimate_wpiBlue(this.limelightName);
+    } else {
+      LimelightHelpers.SetRobotOrientation(this.limelightName, swerveDrive.getMegaTag2Values()[0], 0, 0, 0,
+          0, 0);
+      limelightPoseEstimate = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(this.limelightName);
+      if (swerveDrive.getMegaTag2Values()[1] > 1 || limelightPoseEstimate.tagCount == 0) {
+        return Optional.empty();
+      }
+    }
     PoseEstimation poseEstimation = convertPoseEstimate(limelightPoseEstimate);
     this.isDetectingLogger.append(true);
     this.detectedPoseLogger.appendRadians(poseEstimation.estimatedPose.toPose2d());
@@ -62,6 +72,10 @@ public class LimelightPoseEstimator implements PoseEstimator {
       return Optional.empty();
     }
     return Optional.of(poseEstimation);
+  }
+
+  public void setSwerveDriveForGyroReference(OdometryEnabledSwerveSubsystem swerve) {
+    swerveDrive = swerve;
   }
 
   private PoseEstimation convertPoseEstimate(PoseEstimate limelightPoseEstimate) {
